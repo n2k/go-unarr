@@ -109,6 +109,9 @@ UNARR_EXPORT size_t ar_get_global_comment(ar_archive *ar, void *buffer, size_t c
 
 /* checks whether 'stream' could contain RAR data and prepares for archive listing/extraction; returns NULL on failure */
 UNARR_EXPORT ar_archive *ar_open_rar_archive(ar_stream *stream);
+/* like ar_open_rar_archive but supports multi-volume RAR; paths[0] must match the stream already opened,
+   paths[1..num_paths-1] are the continuation volumes opened automatically as needed */
+UNARR_EXPORT ar_archive *ar_open_rar_archive_multi(ar_stream *stream, char **paths, int num_paths);
 
 /***** tar/tar *****/
 

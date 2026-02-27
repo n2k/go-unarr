@@ -9,6 +9,48 @@ import (
 	"time"
 )
 
+// TestMultiVolumeRAR exercises the multi-volume RAR extraction path.
+// testdata/test_multivol.rar (+ .r00) contain a single file "multivol"
+// consisting of 30720 bytes where every byte equals its index modulo 256.
+func TestMultiVolumeRAR(t *testing.T) {
+	const contentSize = 30720
+
+	a, err := NewArchive(filepath.Join("testdata", "test_multivol.rar"))
+	if err != nil {
+		t.Fatal("open:", err)
+	}
+	defer a.Close()
+
+	if err := a.Entry(); err != nil {
+		t.Fatal("entry:", err)
+	}
+
+	if a.Name() != "multivol" {
+		t.Fatalf("name: got %q, want %q", a.Name(), "multivol")
+	}
+	if a.Size() != contentSize {
+		t.Fatalf("size: got %d, want %d", a.Size(), contentSize)
+	}
+
+	data, err := a.ReadAll()
+	if err != nil {
+		t.Fatal("ReadAll:", err)
+	}
+	if len(data) != contentSize {
+		t.Fatalf("data length: got %d, want %d", len(data), contentSize)
+	}
+	for i, b := range data {
+		if b != byte(i%256) {
+			t.Fatalf("byte mismatch at offset %d: got 0x%02x, want 0x%02x", i, b, byte(i%256))
+		}
+	}
+
+	// Second Entry() call must return io.EOF cleanly (no spurious error).
+	if err := a.Entry(); err != io.EOF {
+		t.Fatalf("second Entry(): got %v, want io.EOF", err)
+	}
+}
+
 var (
 	exts  = []string{"zip", "rar", "7z", "tar"}
 	files = []string{"test.zip", "test.rar", "test.7z", "test.tar"}
