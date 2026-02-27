@@ -89,8 +89,8 @@ bool rar_parse_header_entry(ar_archive_rar *rar, struct rar_header *header, stru
         unsigned char more_data[8];
         if (ar_read(rar->super.stream, more_data, sizeof(more_data)) != sizeof(more_data))
             return false;
-        header->datasize += (uint64_t)uint32le(more_data + 0);
-        entry->size += (uint64_t)uint32le(more_data + 4);
+        header->datasize += (uint64_t)uint32le(more_data + 0) << 32;
+        entry->size += (uint64_t)uint32le(more_data + 4) << 32;
     }
     if (!ar_skip(rar->super.stream, entry->namelen))
         return false;

@@ -174,6 +174,22 @@ func OpenRarArchive(stream *Stream) *Archive {
 	return v
 }
 
+// OpenMultiFileRar opens a multi-volume RAR archive.  stream must already be
+// open for paths[0]; paths[1..] are the continuation volumes.
+func OpenMultiFileRar(stream *Stream, paths []string) *Archive {
+	cstream := (*C.ar_stream)(unsafe.Pointer(stream))
+
+	cpaths := make([]*C.char, len(paths))
+	for i, p := range paths {
+		cpaths[i] = C.CString(p)
+		defer C.free(unsafe.Pointer(cpaths[i]))
+	}
+
+	ret := C.ar_open_rar_archive_multi(cstream, (**C.char)(unsafe.Pointer(&cpaths[0])), C.int(len(paths)))
+	v := *(**Archive)(unsafe.Pointer(&ret))
+	return v
+}
+
 // OpenTarArchive .
 func OpenTarArchive(stream *Stream) *Archive {
 	cstream := (*C.ar_stream)(unsafe.Pointer(stream))

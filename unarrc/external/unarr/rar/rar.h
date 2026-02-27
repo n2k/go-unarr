@@ -238,6 +238,8 @@ struct ar_archive_rar_s {
     struct ar_archive_rar_uncomp uncomp;
     struct ar_archive_rar_progress progress;
     struct ar_archive_rar_solid solid;
+    bool (*next_volume)(ar_archive_rar *rar);
+    void *volume_ctx;
 };
 
 #endif

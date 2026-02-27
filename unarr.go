@@ -3,6 +3,7 @@ package unarr
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ func NewArchive(path string) (a *Archive, err error) {
 		return
 	}
 
-	err = a.open()
+	err = a.open(path)
 
 	return
 }
@@ -57,7 +58,7 @@ func NewArchiveFromMemory(b []byte) (a *Archive, err error) {
 		return
 	}
 
-	err = a.open()
+	err = a.open("")
 
 	return
 }
@@ -75,9 +76,18 @@ func NewArchiveFromReader(r io.Reader) (a *Archive, err error) {
 	return
 }
 
-// open opens archive
-func (a *Archive) open() (err error) {
-	a.archive = unarrc.OpenRarArchive(a.stream)
+// open opens archive, using multi-volume RAR support when applicable.
+func (a *Archive) open(path string) (err error) {
+	// For .rar files, check for continuation volumes and use the multi-volume opener.
+	if strings.ToLower(filepath.Ext(path)) == ".rar" {
+		if vols := findRarVolumes(path); len(vols) > 1 {
+			a.archive = unarrc.OpenMultiFileRar(a.stream, vols)
+		}
+	}
+
+	if a.archive == nil {
+		a.archive = unarrc.OpenRarArchive(a.stream)
+	}
 	if a.archive == nil {
 		a.archive = unarrc.OpenZipArchive(a.stream, false)
 	}
@@ -90,11 +100,30 @@ func (a *Archive) open() (err error) {
 
 	if a.archive == nil {
 		unarrc.Close(a.stream)
-
 		err = ErrOpenArchive
 	}
 
 	return
+}
+
+// findRarVolumes returns the ordered list of all volume paths for a .rar
+// archive using the classic WinRAR naming scheme (.rar, .r00, .r01, ...).
+func findRarVolumes(first string) []string {
+	base := first[:len(first)-len(filepath.Ext(first))]
+	vols := []string{first}
+	for i := 0; ; i++ {
+		var next string
+		if i < 100 {
+			next = fmt.Sprintf("%s.r%02d", base, i)
+		} else {
+			next = fmt.Sprintf("%s.r%d", base, i)
+		}
+		if _, statErr := os.Stat(next); statErr != nil {
+			break
+		}
+		vols = append(vols, next)
+	}
+	return vols
 }
 
 // Entry reads the next archive entry.
@@ -220,33 +249,55 @@ func (a *Archive) ReadAll() ([]byte, error) {
 	return b, nil
 }
 
-// Extract extracts archive to destination path
+// Extract extracts archive to destination path.
+// Data is streamed to disk in chunks to support very large entries.
 func (a *Archive) Extract(path string) (contents []string, err error) {
+	const chunkSize = 4 * 1024 * 1024 // 4 MiB per write
+
 	for {
 		e := a.Entry()
 		if e != nil {
 			if e == io.EOF {
 				break
 			}
-
 			err = e
 			return
 		}
 
 		name := a.Name()
 		contents = append(contents, name)
-		data, e := a.ReadAll()
+
+		dirname := filepath.Join(path, filepath.Dir(name))
+		_ = os.MkdirAll(dirname, 0755)
+
+		f, e := os.OpenFile(filepath.Join(dirname, filepath.Base(name)), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if e != nil {
 			err = e
 			return
 		}
 
-		dirname := filepath.Join(path, filepath.Dir(name))
-		_ = os.MkdirAll(dirname, 0755)
-
-		e = os.WriteFile(filepath.Join(dirname, filepath.Base(name)), data, 0644)
-		if e != nil {
-			err = e
+		remaining := a.Size()
+		buf := make([]byte, min(chunkSize, remaining))
+		var writeErr error
+		for remaining > 0 {
+			chunk := min(remaining, chunkSize)
+			_, readErr := a.Read(buf[:chunk])
+			if readErr != nil && readErr != io.EOF {
+				writeErr = readErr
+				break
+			}
+			if _, we := f.Write(buf[:chunk]); we != nil {
+				writeErr = we
+				break
+			}
+			remaining -= chunk
+			if readErr == io.EOF {
+				break
+			}
+		}
+		f.Close()
+		if writeErr != nil {
+			err = writeErr
 			return
 		}
 	}
